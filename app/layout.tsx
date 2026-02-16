@@ -9,13 +9,13 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ width: "100%", height: "100%" }}>
       <body
         style={{
           margin: 0,
           padding: 0,
-          width: "100vw",
-          height: "100vh",
+          width: "100%",
+          minHeight: "100dvh",
           overflow: "hidden",
           background: "#000",
         }}

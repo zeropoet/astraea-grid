@@ -17,6 +17,9 @@ export default function GridEngine() {
     useEffect(() => {
         let instance: p5 | null = null
         let cancelled = false
+        let hostWidth = 1
+        let hostHeight = 1
+        let handleResize: (() => void) | null = null
 
         const sketch = (p: p5) => {
             let cols = 0
@@ -29,8 +32,8 @@ export default function GridEngine() {
 
             function viewport() {
                 return {
-                    width: Math.max(320, window.innerWidth),
-                    height: Math.max(240, window.innerHeight)
+                    width: Math.max(1, hostWidth),
+                    height: Math.max(1, hostHeight)
                 }
             }
 
@@ -81,7 +84,7 @@ export default function GridEngine() {
                 p.pixelDensity(1)
                 const canvas = p.createCanvas(width, height)
                 canvas.style("display", "block")
-                canvas.style("position", "fixed")
+                canvas.style("position", "absolute")
                 canvas.style("left", "0")
                 canvas.style("top", "0")
                 canvas.style("width", "100%")
@@ -90,7 +93,7 @@ export default function GridEngine() {
                 rebuildGrid()
             }
 
-            p.windowResized = () => {
+            handleResize = () => {
                 const { width, height } = viewport()
                 p.pixelDensity(1)
                 p.resizeCanvas(width, height)
@@ -164,6 +167,9 @@ export default function GridEngine() {
             try {
                 const { default: P5 } = await import("p5")
                 if (cancelled || !hostRef.current) return
+                const hostRect = hostRef.current.getBoundingClientRect()
+                hostWidth = hostRect.width
+                hostHeight = hostRect.height
                 instance = new P5(sketch, hostRef.current)
             } catch (error) {
                 console.error(error)
@@ -172,11 +178,35 @@ export default function GridEngine() {
 
         void mount()
 
+        const host = hostRef.current
+        const resizeObserver =
+            host &&
+            new ResizeObserver((entries) => {
+                const entry = entries[0]
+                if (!entry || !instance) return
+                hostWidth = entry.contentRect.width
+                hostHeight = entry.contentRect.height
+                handleResize?.()
+            })
+        if (host && resizeObserver) resizeObserver.observe(host)
+
         return () => {
             cancelled = true
+            resizeObserver?.disconnect()
             instance?.remove()
         }
     }, [])
 
-    return <div ref={hostRef} style={{ width: "100vw", height: "100vh", overflow: "hidden" }} />
+    return (
+        <div
+            ref={hostRef}
+            style={{
+                position: "relative",
+                width: "100%",
+                height: "100%",
+                minHeight: "100dvh",
+                overflow: "hidden"
+            }}
+        />
+    )
 }
