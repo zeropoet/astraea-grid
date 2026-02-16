@@ -5,8 +5,10 @@ A generative lattice animation built with `p5.js`, served through a minimal `Nex
 ## What It Does
 
 - Renders a full-viewport animated grid on `/`
-- Uses mouse position as a dynamic attractor
-- Falls back to autonomous motion when the pointer leaves the viewport
+- Uses click/touch as a localized pulling force on the cloth-like lattice
+- Persists pulled deformations as new resting folds until reload
+- Uses friction and distance constraints to avoid point entanglement
+- Scales lattice density and cell ratio with viewport size/aspect
 - Exports as a static site (`out/`) for GitHub Pages
 
 Core implementation lives in `/Users/zeropoet/WebstormProjects/astreae-grid/components/GridEngine.tsx`.
@@ -68,4 +70,4 @@ If you rename the repository, update the `repo` value in `/Users/zeropoet/Websto
 
 - The canvas is created client-side using dynamic import of `p5`
 - Canvas is fixed to viewport and rebuilt on resize
-- Animation uses a combination of harmonic wave offsets + attractor pull
+- Animation uses a spring-mass cloth simulation with plastic deformation and edge-length constraints

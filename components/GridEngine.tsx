@@ -8,6 +8,8 @@ type GridNode = {
     by: number
     x: number
     y: number
+    vx: number
+    vy: number
     phase: number
 }
 
@@ -24,9 +26,16 @@ export default function GridEngine() {
         const sketch = (p: p5) => {
             let cols = 0
             let rows = 0
-            let spacing = 0
+            let spacingX = 0
+            let spacingY = 0
+            let spacingDiag = 0
             let nodes: GridNode[] = []
             let drift = 0
+            let pointerX = 0
+            let pointerY = 0
+            let pointerPrevX = 0
+            let pointerPrevY = 0
+            let pointerReady = false
 
             const indexOf = (r: number, c: number) => r * cols + c
 
@@ -40,43 +49,85 @@ export default function GridEngine() {
             function rebuildGrid() {
                 const { width, height } = viewport()
                 const unit = Math.min(width, height)
-                spacing = Math.max(22, Math.min(52, Math.floor(unit / 22)))
-                cols = Math.floor(width / spacing) + 3
-                rows = Math.floor(height / spacing) + 3
-                const startX = -(cols - 1) * spacing * 0.5
-                const startY = -(rows - 1) * spacing * 0.5
+                const area = width * height
+                const baselineArea = 1440 * 900
+                const densityScale = Math.pow(area / baselineArea, 0.1)
+                const baseSpacing = Math.max(22, Math.min(52, Math.floor(unit / 22)))
+                const responsiveSpacing = Math.max(
+                    20,
+                    Math.min(56, baseSpacing / densityScale)
+                )
+
+                const aspect = width / Math.max(1, height)
+                const baselineAspect = 16 / 10
+                const aspectInfluence = Math.max(
+                    -0.16,
+                    Math.min(0.16, (aspect - baselineAspect) * 0.16)
+                )
+                const sizeInfluence = Math.max(
+                    -0.08,
+                    Math.min(0.08, (unit - 920) / 4200)
+                )
+                const cellRatio = Math.max(
+                    0.82,
+                    Math.min(1.22, 1 + aspectInfluence + sizeInfluence)
+                )
+
+                spacingX = responsiveSpacing * cellRatio
+                spacingY = responsiveSpacing / cellRatio
+                spacingDiag = Math.hypot(spacingX, spacingY)
+
+                const overscanX = Math.max(spacingX * 8, width * 0.45)
+                const overscanY = Math.max(spacingY * 8, height * 0.45)
+                const totalWidth = width + overscanX * 2
+                const totalHeight = height + overscanY * 2
+
+                cols = Math.floor(totalWidth / spacingX) + 1
+                rows = Math.floor(totalHeight / spacingY) + 1
+                const startX = -((cols - 1) * spacingX) * 0.5
+                const startY = -((rows - 1) * spacingY) * 0.5
 
                 nodes = []
                 for (let r = 0; r < rows; r += 1) {
                     for (let c = 0; c < cols; c += 1) {
-                        const bx = startX + c * spacing
-                        const by = startY + r * spacing
+                        const bx = startX + c * spacingX
+                        const by = startY + r * spacingY
                         nodes.push({
                             bx,
                             by,
                             x: bx,
                             y: by,
+                            vx: 0,
+                            vy: 0,
                             phase: p.noise(r * 0.09, c * 0.09) * Math.PI * 2
                         })
                     }
                 }
             }
 
-            function attractor(t: number) {
+            function pointerIsActive() {
+                const hasTouch = Array.isArray((p as unknown as { touches?: unknown[] }).touches)
+                    ? ((p as unknown as { touches?: unknown[] }).touches?.length ?? 0) > 0
+                    : false
+                const mouseDown =
+                    (p as unknown as { mouseIsPressed?: boolean }).mouseIsPressed === true
+                return hasTouch || mouseDown
+            }
+
+            function pointerPosition() {
                 const { width, height } = viewport()
-                const rx = width * 0.24
-                const ry = height * 0.18
-                const auto = {
-                    x: Math.cos(t * 0.8) * rx,
-                    y: Math.sin(t * 0.6 + 0.7) * ry
+                const touches = (p as unknown as { touches?: Array<{ x?: number; y?: number }> })
+                    .touches
+                if (touches && touches.length > 0) {
+                    const touch = touches[0]
+                    const tx = touch.x ?? width * 0.5
+                    const ty = touch.y ?? height * 0.5
+                    return { x: tx - width * 0.5, y: ty - height * 0.5 }
                 }
 
-                if (p.mouseX < 0 || p.mouseY < 0 || p.mouseX > width || p.mouseY > height) return auto
-
-                return {
-                    x: p.mouseX - width * 0.5,
-                    y: p.mouseY - height * 0.5
-                }
+                const mx = Number.isFinite(p.mouseX) ? p.mouseX : width * 0.5
+                const my = Number.isFinite(p.mouseY) ? p.mouseY : height * 0.5
+                return { x: mx - width * 0.5, y: my - height * 0.5 }
             }
 
             p.setup = () => {
@@ -106,29 +157,161 @@ export default function GridEngine() {
                 const { width, height } = viewport()
                 const centerX = width * 0.5
                 const centerY = height * 0.5
-                const focus = attractor(t)
+                const pulling = pointerIsActive()
+                const focus = pointerPosition()
+
+                if (!pointerReady) {
+                    pointerX = focus.x
+                    pointerY = focus.y
+                    pointerPrevX = focus.x
+                    pointerPrevY = focus.y
+                    pointerReady = true
+                } else {
+                    pointerPrevX = pointerX
+                    pointerPrevY = pointerY
+                    pointerX += (focus.x - pointerX) * (pulling ? 0.42 : 0.14)
+                    pointerY += (focus.y - pointerY) * (pulling ? 0.42 : 0.14)
+                }
+
+                const moveX = pointerX - pointerPrevX
+                const moveY = pointerY - pointerPrevY
 
                 p.background(0, 0, 0, 55)
                 p.translate(centerX, centerY)
 
+                const ax = new Float32Array(nodes.length)
+                const ay = new Float32Array(nodes.length)
+
+                const structuralK = 0.12
+                const springFriction = 0.07
+                const anchorK = 0.032
+                const damping = 0.17
+                const idleWave = 0.06
+
                 for (let i = 0; i < nodes.length; i += 1) {
                     const node = nodes[i]
-                    const dx = node.bx - focus.x
-                    const dy = node.by - focus.y
-                    const d = Math.sqrt(dx * dx + dy * dy) || 1
-                    const dNorm = Math.min(1, d / (Math.min(width, height) * 0.55))
-                    const pull = (1 - dNorm) * 16
+                    const restoreX = (node.bx - node.x) * anchorK
+                    const restoreY = (node.by - node.y) * anchorK
+                    const dragX = -node.vx * damping
+                    const dragY = -node.vy * damping
+                    const wave = Math.sin(t * 1.6 + node.phase)
+                    ax[i] += restoreX + dragX + wave * idleWave * 0.08
+                    ay[i] += restoreY + dragY + wave * idleWave
+                }
 
-                    const waveA = Math.sin(t * 1.9 + node.phase + node.bx * 0.011)
-                    const waveB = Math.cos(t * 1.6 + node.phase + node.by * 0.011)
-                    const waveX = waveA * 7 + waveB * 3
-                    const waveY = waveB * 7 + waveA * 3
+                const applySpring = (a: number, b: number, restLength: number) => {
+                    const na = nodes[a]
+                    const nb = nodes[b]
+                    const dx = nb.x - na.x
+                    const dy = nb.y - na.y
+                    const dist = Math.hypot(dx, dy) || 1
+                    const ux = dx / dist
+                    const uy = dy / dist
+                    const extension = dist - restLength
+                    const relativeSpeed = (nb.vx - na.vx) * ux + (nb.vy - na.vy) * uy
+                    const force = extension * structuralK + relativeSpeed * springFriction
+                    const fx = ux * force
+                    const fy = uy * force
+                    ax[a] += fx
+                    ay[a] += fy
+                    ax[b] -= fx
+                    ay[b] -= fy
+                }
 
-                    const attractX = (focus.x - node.bx) / d * pull
-                    const attractY = (focus.y - node.by) / d * pull
+                const constrainEdge = (a: number, b: number, minLength: number, maxLength: number) => {
+                    const na = nodes[a]
+                    const nb = nodes[b]
+                    const dx = nb.x - na.x
+                    const dy = nb.y - na.y
+                    const dist = Math.hypot(dx, dy) || 1
+                    const target = Math.min(maxLength, Math.max(minLength, dist))
+                    if (Math.abs(target - dist) < 0.0001) return
 
-                    node.x = node.bx + waveX + attractX
-                    node.y = node.by + waveY + attractY
+                    const correction = ((dist - target) / dist) * 0.5
+                    const ox = dx * correction
+                    const oy = dy * correction
+                    na.x += ox
+                    na.y += oy
+                    nb.x -= ox
+                    nb.y -= oy
+                }
+
+                for (let r = 0; r < rows; r += 1) {
+                    for (let c = 0; c < cols; c += 1) {
+                        const i = indexOf(r, c)
+                        if (c + 1 < cols) applySpring(i, indexOf(r, c + 1), spacingX)
+                        if (r + 1 < rows) applySpring(i, indexOf(r + 1, c), spacingY)
+                    }
+                }
+
+                const prevX = new Float32Array(nodes.length)
+                const prevY = new Float32Array(nodes.length)
+
+                for (let i = 0; i < nodes.length; i += 1) {
+                    const node = nodes[i]
+                    prevX[i] = node.x
+                    prevY[i] = node.y
+                    const dx = node.x - pointerX
+                    const dy = node.y - pointerY
+                    const d = Math.hypot(dx, dy) || 1
+                    const radius = Math.min(width, height) * (pulling ? 0.3 : 0.24)
+                    if (d < radius) {
+                        const influence = (1 - d / radius) ** 2
+                        const dirX = -dx / d
+                        const dirY = -dy / d
+                        const pullForce = (pulling ? 1.35 : 0.28) * influence
+                        const dragForce = (pulling ? 9 : 1.2) * influence
+                        ax[i] += dirX * pullForce + moveX * dragForce
+                        ay[i] += dirY * pullForce + moveY * dragForce
+                    }
+
+                    node.vx += ax[i]
+                    node.vy += ay[i]
+                    node.x += node.vx
+                    node.y += node.vy
+                }
+
+                const minEdgeX = spacingX * 0.68
+                const maxEdgeX = spacingX * 1.52
+                const minEdgeY = spacingY * 0.68
+                const maxEdgeY = spacingY * 1.52
+                const minDiag = spacingDiag * 0.76
+                const maxDiag = spacingDiag * 1.5
+                for (let iteration = 0; iteration < 2; iteration += 1) {
+                    for (let r = 0; r < rows; r += 1) {
+                        for (let c = 0; c < cols; c += 1) {
+                            const i = indexOf(r, c)
+                            if (c + 1 < cols) {
+                                constrainEdge(i, indexOf(r, c + 1), minEdgeX, maxEdgeX)
+                            }
+                            if (r + 1 < rows) {
+                                constrainEdge(i, indexOf(r + 1, c), minEdgeY, maxEdgeY)
+                            }
+                            if (c + 1 < cols && r + 1 < rows) {
+                                constrainEdge(i, indexOf(r + 1, c + 1), minDiag, maxDiag)
+                            }
+                            if (c > 0 && r + 1 < rows) {
+                                constrainEdge(i, indexOf(r + 1, c - 1), minDiag, maxDiag)
+                            }
+                        }
+                    }
+                }
+
+                const plasticRadius = Math.min(width, height) * 0.34
+                for (let i = 0; i < nodes.length; i += 1) {
+                    const node = nodes[i]
+                    node.vx = (node.x - prevX[i]) * 0.86
+                    node.vy = (node.y - prevY[i]) * 0.86
+
+                    if (!pulling) continue
+                    const dx = node.x - pointerX
+                    const dy = node.y - pointerY
+                    const d = Math.hypot(dx, dy)
+                    if (d > plasticRadius) continue
+                    const influence = (1 - d / plasticRadius) ** 2
+                    const settle = 0.075 * influence
+                    node.bx += (node.x - node.bx) * settle + moveX * 0.22 * influence
+                    node.by += (node.y - node.by) * settle + moveY * 0.22 * influence
                 }
 
                 p.strokeWeight(0.9)
@@ -140,14 +323,29 @@ export default function GridEngine() {
 
                         const glow =
                             0.5 +
-                            0.5 * Math.sin(t * 1.3 + node.phase + r * 0.14 + c * 0.09)
+                            0.5 * Math.sin(t * 1.2 + node.phase + r * 0.14 + c * 0.09)
+                        const stretchX = right
+                            ? Math.abs(
+                                  Math.hypot(right.x - node.x, right.y - node.y) - spacingX
+                              )
+                            : 0
+                        const stretchY = down
+                            ? Math.abs(
+                                  Math.hypot(down.x - node.x, down.y - node.y) - spacingY
+                              )
+                            : 0
+                        const strain = Math.min(
+                            1,
+                            (stretchX + stretchY) / (Math.min(spacingX, spacingY) * 0.35)
+                        )
+                        const alpha = 14 + glow * 22 + strain * 42
 
                         if (right) {
-                            p.stroke(235, 235, 235, 16 + glow * 34)
+                            p.stroke(235, 235, 235, alpha)
                             p.line(node.x, node.y, right.x, right.y)
                         }
                         if (down) {
-                            p.stroke(235, 235, 235, 16 + glow * 34)
+                            p.stroke(235, 235, 235, alpha)
                             p.line(node.x, node.y, down.x, down.y)
                         }
                     }
@@ -156,9 +354,10 @@ export default function GridEngine() {
                 p.noStroke()
                 for (let i = 0; i < nodes.length; i += 1) {
                     const node = nodes[i]
-                    const pulse = 0.5 + 0.5 * Math.sin(t * 2.4 + node.phase)
-                    p.fill(248, 248, 248, 70 + pulse * 130)
-                    p.circle(node.x, node.y, 1.3 + pulse * 2.2)
+                    const velocity = Math.min(1, Math.hypot(node.vx, node.vy) / 3.2)
+                    const pulse = 0.5 + 0.5 * Math.sin(t * 2.2 + node.phase)
+                    p.fill(248, 248, 248, 42 + pulse * 60 + velocity * 90)
+                    p.circle(node.x, node.y, 1.1 + pulse * 1.4 + velocity * 1.8)
                 }
             }
         }
