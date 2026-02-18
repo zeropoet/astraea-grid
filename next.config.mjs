@@ -1,5 +1,5 @@
 const isGithubActions = process.env.GITHUB_ACTIONS === "true"
-const repo = "axis-grid"
+const repo = "grid-research"
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
