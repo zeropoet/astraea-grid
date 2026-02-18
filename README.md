@@ -1,17 +1,15 @@
 # Axis Grid
 
-A generative lattice animation built with `p5.js`, served through a minimal `Next.js` App Router shell.
+Axis Grid is a full-screen generative lattice animation built with `p5.js` inside a `Next.js` App Router shell.
 
-## What It Does
+## Features
 
-- Renders a full-viewport animated grid on `/`
-- Uses click/touch as a localized pulling force on the cloth-like lattice
-- Persists pulled deformations as new resting folds until reload
-- Uses friction and distance constraints to avoid point entanglement
-- Scales lattice density and cell ratio with viewport size/aspect
-- Exports as a static site (`out/`) for GitHub Pages
-
-Core implementation lives in `/Users/zeropoet/WebstormProjects/axis-grid/components/GridEngine.tsx`.
+- Full-viewport animated grid rendered at `/`
+- Pointer/touch interaction that pulls nearby nodes
+- Plastic deformation so folds persist during a session
+- Constraint-based spring simulation to keep the mesh stable
+- Responsive grid density and cell ratio based on viewport size
+- Static export support for GitHub Pages
 
 ## Tech Stack
 
@@ -19,7 +17,7 @@ Core implementation lives in `/Users/zeropoet/WebstormProjects/axis-grid/compone
 - `React` 19
 - `TypeScript`
 - `p5.js`
-- `Vitest` (test runner)
+- `Vitest` + Testing Library
 
 ## Project Structure
 
@@ -29,45 +27,47 @@ app/
   page.tsx
 components/
   GridEngine.tsx
+  GridEngine.test.tsx
 next.config.mjs
-package.json
+vitest.config.ts
 ```
 
 ## Getting Started
 
-### 1) Install dependencies
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-### 2) Run locally
+2. Start development server:
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+3. Open [http://localhost:3000](http://localhost:3000).
 
 ## Scripts
 
-- `npm run dev` - start local dev server
-- `npm run build` - production build + static export
-- `npm run start` - run production server
+- `npm run dev` - start local development server
+- `npm run build` - production build (with static export config)
+- `npm run build:pages` - GitHub Pages build alias
+- `npm run start` - start production server
 - `npm run serve:pages` - serve exported `out/` directory
 - `npm run typecheck` - generate Next types and run TypeScript checks
-- `npm test` - run tests with Vitest
+- `npm test` - run tests once with Vitest
 
 ## Static Export and GitHub Pages
 
-Static export is enabled in `/Users/zeropoet/WebstormProjects/axis-grid/next.config.mjs` via `output: "export"`.
+Static export is enabled in `next.config.mjs` with `output: "export"`.
 
-During GitHub Actions runs (`GITHUB_ACTIONS=true`), `basePath` and `assetPrefix` are set to `/<repo>/` so the site works correctly on GitHub Pages.
+When `GITHUB_ACTIONS=true`, the config applies repo-prefixed `basePath` and `assetPrefix` so the exported site resolves correctly on GitHub Pages.
 
-If you rename the repository, update the `repo` value in `/Users/zeropoet/WebstormProjects/axis-grid/next.config.mjs`.
+If the repository name changes, update the `repo` constant in `next.config.mjs`.
 
-## Development Notes
+## Notes
 
-- The canvas is created client-side using dynamic import of `p5`
-- Canvas is fixed to viewport and rebuilt on resize
-- Animation uses a spring-mass cloth simulation with plastic deformation and edge-length constraints
+- The `p5` sketch is dynamically imported client-side in `components/GridEngine.tsx`.
+- The canvas is rebuilt on resize using container dimensions.
+- Unit tests cover layout sizing and the grid host container behavior.
